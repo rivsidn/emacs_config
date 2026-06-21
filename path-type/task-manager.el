@@ -35,7 +35,6 @@
   '((sequence "TODO(t)" "DOING(g)" "PAUSED(p)" "|"
               "DONE(d)" "CANCELLED(c)")))
 (defconst my/task-manager--quick-choice-letters "abcdefghijklmnopqrstuvwxyz")
-(defconst my/task-manager--choice-buffer-name "*task-manager-choices*")
 
 (defvar-local my/task-manager--entry-buffer nil
   "Non-nil means the current buffer is the task manager entry file.")
@@ -91,124 +90,56 @@
 (defun my/task-manager--choice-letter (index)
   "Return the quick letter for zero-based INDEX."
   (when (< index (length my/task-manager--quick-choice-letters))
-    (substring my/task-manager--quick-choice-letters index (1+ index))))
+    (aref my/task-manager--quick-choice-letters index)))
 
 (defun my/task-manager--choice-explicit-key (candidate key-alist)
   "Return explicit quick key for CANDIDATE from KEY-ALIST."
-  (car (cl-find candidate key-alist :key #'cdr :test #'string=)))
+  (let ((key (car (cl-find candidate key-alist :key #'cdr :test #'string=))))
+    (cond
+     ((characterp key) key)
+     ((and (stringp key) (> (length key) 0))
+      (aref key 0)))))
 
 (defun my/task-manager--choice-key (candidate index key-alist)
   "Return quick key for CANDIDATE at zero-based INDEX."
   (or (my/task-manager--choice-explicit-key candidate key-alist)
-      (my/task-manager--choice-letter index)))
+      (when (< index 9)
+        (+ ?1 index))
+      (my/task-manager--choice-letter (- index 9))))
 
-(defun my/task-manager--choice-lookup (candidates key-alist)
-  "Return lookup alist for CANDIDATES and KEY-ALIST."
-  (let (lookup)
-    (cl-loop for candidate in candidates
-             for index from 0
-             do
-             (push (cons (number-to-string (1+ index)) candidate) lookup)
-             (when-let ((key (my/task-manager--choice-key
-                              candidate index key-alist)))
-               (push (cons (downcase key) candidate) lookup)))
-    lookup))
+(defun my/task-manager--choice-items (candidates key-alist)
+  "Return `read-multiple-choice' items for CANDIDATES and KEY-ALIST."
+  (cl-loop for candidate in candidates
+           for index from 0
+           collect
+           (list (my/task-manager--choice-key candidate index key-alist)
+                 candidate)))
 
-(defun my/task-manager--show-choice-buffer (prompt candidates default key-alist)
-  "Show CANDIDATES for PROMPT and return the displayed window."
-  (let ((buffer (get-buffer-create my/task-manager--choice-buffer-name)))
-    (with-current-buffer buffer
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (insert (format "%s\n\n" prompt))
-        (when default
-          (insert (format "默认：%s，直接回车选择默认值。\n" default)))
-        (insert "输入数字或字母快捷键选择。\n\n")
-        (cl-loop for candidate in candidates
-                 for index from 0
-                 for number = (number-to-string (1+ index))
-                 for key = (my/task-manager--choice-key
-                            candidate index key-alist)
-                 do
-                 (insert (format "%3s%s  %s\n"
-                                 number
-                                 (if key (format "/%s" key) "")
-                                 candidate)))
-        (goto-char (point-min))
-        (special-mode)))
-    (display-buffer buffer)))
-
-(defun my/task-manager--choice-prompt (prompt candidates default key-alist)
-  "Return minibuffer prompt for a quick choice."
-  (let ((default-key
-         (when default
-           (or (car (rassoc default
-                            (my/task-manager--choice-lookup
-                             candidates key-alist)))
-               default))))
-    (if default-key
-        (format "%s [%s]: " prompt default-key)
-      (format "%s: " prompt))))
-
-(defun my/task-manager--read-choice-by-key
-    (prompt candidates default key-alist)
-  "Read a single-key choice from CANDIDATES."
-  (let* ((lookup (my/task-manager--choice-lookup candidates key-alist))
-         (prompt (my/task-manager--choice-prompt
-                  prompt candidates default key-alist)))
-    (catch 'selected
-      (while t
-        (let ((key (read-key prompt)))
-          (cond
-           ((memq key '(?\r ?\n))
-            (throw 'selected default))
-           ((characterp key)
-            (let* ((input (downcase (char-to-string key)))
-                   (match (assoc input lookup)))
-              (if match
-                  (throw 'selected (cdr match))
-                (message "无效选择：%s" input))))
-           (t
-            (message "无效选择"))))))))
-
-(defun my/task-manager--read-choice-by-input
-    (prompt candidates default key-alist)
-  "Read a multi-character choice from CANDIDATES."
-  (let* ((lookup (my/task-manager--choice-lookup candidates key-alist))
-         (prompt (my/task-manager--choice-prompt
-                  prompt candidates default key-alist))
-         value)
-    (while (not value)
-      (let* ((input (string-trim (read-string prompt)))
-             (normalized (downcase input))
-             (key-match (assoc normalized lookup))
-             (candidate-match (cl-find input candidates :test #'string=)))
-        (cond
-         ((string-empty-p input)
-          (setq value default))
-         (key-match
-          (setq value (cdr key-match)))
-         (candidate-match
-          (setq value candidate-match))
-         (t
-          (message "无效选择：%s" input)))))
-    value))
+(defun my/task-manager--choice-help (prompt choices)
+  "Return a help string for PROMPT and CHOICES without duplicated keys."
+  (concat prompt "\n\n"
+          (mapconcat
+           (lambda (choice)
+             (format "%s: %s"
+                     (key-description (char-to-string (car choice)))
+                     (cadr choice)))
+           choices
+           "\n")))
 
 (defun my/task-manager--read-choice
     (prompt candidates &optional default key-alist)
   "Read a value from CANDIDATES with PROMPT and DEFAULT.
-The user can select by number, letter key or exact candidate name."
-  (let* ((default (or default (car candidates)))
-         (window (my/task-manager--show-choice-buffer
-                  prompt candidates default key-alist)))
-    (unwind-protect
-        (if (<= (length candidates) 9)
-            (my/task-manager--read-choice-by-key
-             prompt candidates default key-alist)
-          (my/task-manager--read-choice-by-input
-           prompt candidates default key-alist))
-      (when (window-live-p window)
-        (quit-window nil window)))))
+Use native `read-multiple-choice' for short lists and
+`completing-read' for long lists."
+  (let ((default (or default (car candidates))))
+    (if (<= (length candidates)
+            (+ 9 (length my/task-manager--quick-choice-letters)))
+        (let ((choices (my/task-manager--choice-items candidates key-alist)))
+          (cadr (read-multiple-choice
+                 prompt choices
+                 (my/task-manager--choice-help prompt choices))))
+      (completing-read (format "%s: " prompt)
+                       candidates nil t nil nil default))))
 
 (defun my/task-manager--read-priority ()
   "Read an Org priority and return it as A, B or C."
