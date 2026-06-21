@@ -575,10 +575,9 @@ Return non-nil when SECTION exists under the task-manager root."
   (let (heading)
     (save-excursion
       (my/task-manager--goto-item-heading)
-      (unless (member (org-get-todo-state) '("TODO" "PAUSED"))
-        (user-error "只有 TODO 或 PAUSED 状态可以开始"))
+      (unless (member (org-get-todo-state) '("TODO" "DOING" "PAUSED"))
+        (user-error "只有 TODO、DOING 或 PAUSED 状态可以开始"))
       (setq heading (point-marker))
-      (my/task-manager--clock-out-active)
       (goto-char heading)
       (my/task-manager--set-state "DOING")
       (my/task-manager--clock-in-current)
