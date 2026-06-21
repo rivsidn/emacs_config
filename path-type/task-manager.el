@@ -359,6 +359,8 @@ Return non-nil when SECTION exists under the task-manager root."
     (insert "\n")
     (setq start (point))
     (insert text)
+    (unless (string-suffix-p "\n\n" text)
+      (insert "\n"))
     (goto-char start)
     (when (search-forward jump-label nil t)
       (end-of-line))))
