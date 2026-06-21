@@ -526,6 +526,48 @@ Return non-nil when SECTION exists under the task-manager root."
          (and (>= clock-position begin)
               (< clock-position end)))))
 
+(defun my/task-manager--clear-stale-clock ()
+  "Clear stale Org clock state."
+  (when (bound-and-true-p org-clock-mode-line-timer)
+    (cancel-timer org-clock-mode-line-timer)
+    (setq org-clock-mode-line-timer nil))
+  (when (bound-and-true-p org-clock-idle-timer)
+    (cancel-timer org-clock-idle-timer)
+    (setq org-clock-idle-timer nil))
+  (when (markerp org-clock-marker)
+    (move-marker org-clock-marker nil))
+  (when (markerp org-clock-hd-marker)
+    (move-marker org-clock-hd-marker nil))
+  (setq org-clock-current-task nil)
+  (setq global-mode-string
+        (delq 'org-mode-line-string global-mode-string))
+  (org-clock-restore-frame-title-format)
+  (force-mode-line-update)
+  (message "已清理失效的 Org 计时状态"))
+
+(defun my/task-manager--clock-out-active ()
+  "Stop the active Org clock, tolerating stale Org clock markers."
+  (when (org-clocking-p)
+    (condition-case err
+        (org-clock-out)
+      (error
+       (if (string= (error-message-string err) "Clock start time is gone")
+           (my/task-manager--clear-stale-clock)
+         (signal (car err) (cdr err)))))))
+
+(defun my/task-manager--clock-in-current ()
+  "Start an Org clock for the current heading, tolerating stale old clocks."
+  (condition-case err
+      (let ((org-clock-into-drawer "LOGBOOK"))
+        (org-clock-in))
+    (error
+     (if (string= (error-message-string err) "Clock start time is gone")
+         (progn
+           (my/task-manager--clear-stale-clock)
+           (let ((org-clock-into-drawer "LOGBOOK"))
+             (org-clock-in)))
+       (signal (car err) (cdr err))))))
+
 (defun my/task-manager-start ()
   "Start the current task or idea and open its detail file."
   (interactive)
@@ -536,12 +578,10 @@ Return non-nil when SECTION exists under the task-manager root."
       (unless (member (org-get-todo-state) '("TODO" "PAUSED"))
         (user-error "只有 TODO 或 PAUSED 状态可以开始"))
       (setq heading (point-marker))
-      (when (org-clocking-p)
-        (org-clock-out))
+      (my/task-manager--clock-out-active)
       (goto-char heading)
       (my/task-manager--set-state "DOING")
-      (let ((org-clock-into-drawer "LOGBOOK"))
-        (org-clock-in))
+      (my/task-manager--clock-in-current)
       (save-buffer))
     (set-marker heading nil))
   (my/task-manager-open-detail))
@@ -556,7 +596,7 @@ Return non-nil when SECTION exists under the task-manager root."
       (user-error "只有 DOING 状态可以暂停"))
     (setq heading (point-marker))
     (when (my/task-manager--clocking-current-entry-p)
-      (org-clock-out))
+      (my/task-manager--clock-out-active))
     (goto-char heading)
     (my/task-manager--set-state "PAUSED")
     (save-buffer)
@@ -589,7 +629,7 @@ Return non-nil when SECTION exists under the task-manager root."
       (user-error "只有 TODO、DOING 或 PAUSED 状态可以结束"))
     (setq heading (point-marker))
     (when (my/task-manager--clocking-current-entry-p)
-      (org-clock-out))
+      (my/task-manager--clock-out-active))
     (goto-char heading)
     (my/task-manager--set-state "DONE")
     (my/task-manager--goto-summary kind)
