@@ -9,6 +9,7 @@
 ## 路径类型
 
 - [task-manager需求说明](task-manager需求说明.md)
+- [task-manager验收标准](task-manager验收标准.md)
 
 
 
