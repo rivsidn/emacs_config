@@ -8,6 +8,8 @@
 
 # 路径类型
 
-- [task-manager功能需求](task-manager功能需求.md)
-- [task-manager需求说明](task-manager需求说明.md)
-- [task-manager验收标准](task-manager验收标准.md)
+## task-manager
+
+- [task-manager功能需求](task-manager/task-manager功能需求.md)
+- [task-manager需求说明](task-manager/task-manager需求说明.md)
+- [task-manager验收标准](task-manager/task-manager验收标准.md)
